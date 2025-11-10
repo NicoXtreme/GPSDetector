@@ -1,0 +1,11 @@
+# .gitignore
+
+# Dependencias de Node
+/node_modules
+
+# Variables de Entorno y Secretos (CRUCIAL)
+.env
+
+# Logs y archivos temporales
+*.log
+npm-debug.log*
