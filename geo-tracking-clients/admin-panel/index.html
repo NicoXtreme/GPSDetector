@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Administración GPS Detector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    
+    <style>
+        /* Define la altura del mapa */
+        #map { height: 600px; z-index: 10; }
+        .tab-content.active { display: block; }
+        .tab-content { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+    <div id="login-content" class="tab-content active flex items-center justify-center min-h-screen">
+        <div class="w-full max-w-md bg-white p-8 rounded-lg shadow-xl">
+            <h2 class="text-3xl font-bold text-center text-indigo-700 mb-6">🔒 Acceso de Administrador</h2>
+            <form id="login-form" onsubmit="return false;">
+                <div class="mb-4">
+                    <label for="admin-email" class="block text-sm font-medium text-gray-700">Email:</label>
+                    <input type="email" id="admin-email" name="email" required class="mt-1 p-2 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="mb-6">
+                    <label for="admin-password" class="block text-sm font-medium text-gray-700">Contraseña:</label>
+                    <input type="password" id="admin-password" name="password" required class="mt-1 p-2 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <button id="login-btn" type="button" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Iniciar Sesión
+                </button>
+            </form>
+            <p id="login-message" class="text-center mt-4 text-sm"></p>
+        </div>
+    </div>
+
+    <div id="main-panel" class="hidden">
+        <header class="bg-white shadow">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center py-4">
+                <h1 class="text-2xl font-bold text-gray-900">GPS Detector - Panel de Rastreo</h1>
+                <div class="flex items-center space-x-4">
+                    <button id="logout-btn" class="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 hidden">
+                        Cerrar Sesión
+                    </button>
+                </div>
+            </div>
+            <div class="border-b border-gray-200">
+                <nav class="-mb-px flex max-w-7xl mx-auto space-x-8 px-4 sm:px-6 lg:px-8">
+                    <button class="tab-button text-gray-500 hover:text-gray-700 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed" 
+                            data-tab-id="dashboard">
+                        Dashboard (Rastreo en Vivo)
+                    </button>
+                    <button class="tab-button text-gray-500 hover:text-gray-700 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed" 
+                            data-tab-id="zones">
+                        Geofencing (Zonas)
+                    </button>
+                    <button class="tab-button text-gray-500 hover:text-gray-700 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed" 
+                            data-tab-id="devices">
+                        Administración de Dispositivos y Alertas
+                    </button>
+                </nav>
+            </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <div class="py-4">
+
+                <div id="dashboard-content" class="tab-content">
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Rastreo en Vivo</h2>
+                    <div class="bg-white p-6 shadow-md rounded-lg mb-6">
+                        <p class="text-sm text-gray-600">Dispositivos Online: <span id="online-count" class="font-bold text-indigo-600">0</span></p>
+                        <div class="mt-4">
+                             <label for="device-selector" class="block text-sm font-medium text-gray-700">Seleccionar Dispositivo (Para Historial):</label>
+                            <select id="device-selector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                            <button onclick="loadDeviceHistory()" class="mt-2 py-1 px-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Ver Historial</button>
+                        </div>
+                    </div>
+                    <div id="map" class="shadow-lg rounded-lg"></div>
+                </div>
+
+                <div id="zones-content" class="tab-content">
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Gestión de Zonas de Geofencing</h2>
+                    <div class="flex justify-end mb-4">
+                         <button onclick="openZoneModal()" class="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                            + Crear Nueva Zona
+                        </button>
+                    </div>
+                    <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Coordenadas (Lat, Lon)</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Radio</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alertas (Entrada/Salida)</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="zones-table-body" class="bg-white divide-y divide-gray-200">
+                                </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div id="devices-content" class="tab-content">
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Gestión de Dispositivos</h2>
+                    <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+                         <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teléfono</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="devices-table-body" class="bg-white divide-y divide-gray-200">
+                                </tbody>
+                        </table>
+                    </div>
+                    
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4 mt-8">Historial de Alertas de Geofencing</h2>
+                    <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dispositivo</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zona</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo de Alerta</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alerts-table-body" class="bg-white divide-y divide-gray-200">
+                                </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- CONFIGURACIÓN GLOBAL ---
+        const API_BASE = 'http://localhost:3000/api'; // Asegúrate que tu servidor esté en este puerto
+        const ADMIN_TOKEN_KEY = 'ADMIN_TOKEN';
+        let map = null;
+        let markers = {}; // Objeto para guardar marcadores de dispositivos por ID
+        let currentDeviceId = 'all'; // Rastrea el dispositivo seleccionado ('all' por defecto)
+        let liveLocationInterval = null; // ID del intervalo para el rastreo en tiempo real
+        let polyline = null; // Para dibujar el historial
+
+        // --- UTILERÍA: CONFIGURACIÓN DE AXIOS Y ERRORES ---
+
+        // 1. Establece el token de autenticación en los headers de Axios
+        const setAuthHeader = (token) => {
+            if (token) {
+                axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+            } else {
+                delete axios.defaults.headers.common['Authorization'];
+            }
+        };
+
+        // 2. Manejo centralizado de errores 401 (Token Expirado/Inválido)
+        const handleAuthError = (error) => {
+            if (error.response && error.response.status === 401) {
+                alert('Sesión expirada o token inválido. Por favor, inicie sesión de nuevo.');
+                logout();
+            } else {
+                console.error('Error de API:', error.response?.data || error);
+                alert(`Error: ${error.response ? error.response.data.message : 'Error de conexión con el servidor.'}`);
+            }
+        };
+
+        // --- GESTIÓN DE LA VISTA (TABS Y SECCIONES) ---
+
+        // 1. Activa una pestaña y oculta el resto
+        const activateTab = (tabId) => {
+            // Oculta todos los contenidos de las pestañas
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            // Desactiva todos los botones de pestaña
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('text-indigo-700', 'border-indigo-500');
+                button.classList.add('text-gray-500', 'border-transparent');
+            });
+
+            // Muestra el contenido de la pestaña activa
+            document.getElementById(`${tabId}-content`).classList.add('active');
+            // Activa el botón de la pestaña
+            const activeBtn = document.querySelector(`.tab-button[data-tab-id="${tabId}"]`);
+            if (activeBtn) {
+                activeBtn.classList.remove('text-gray-500', 'border-transparent');
+                activeBtn.classList.add('text-indigo-700', 'border-indigo-500');
+            }
+        };
+
+        // 2. Habilita o deshabilita los botones de navegación
+        const setTabsEnabled = (enabled) => {
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.disabled = !enabled;
+                button.classList.toggle('opacity-50', !enabled);
+            });
+            document.getElementById('logout-btn')?.classList.toggle('hidden', !enabled);
+        };
+
+        // --- GESTIÓN DE SESIÓN ---
+
+        /**
+         * @description Maneja el proceso de Login del Administrador.
+         */
+        const adminLogin = async () => {
+            // **PUNTO DE DEPURACIÓN CRÍTICO**
+            console.log('--- adminLogin function called. Initiating API request. ---');
+
+            const email = document.getElementById('admin-email').value;
+            const password = document.getElementById('admin-password').value;
+            const loginMessage = document.getElementById('login-message');
+            
+            loginMessage.textContent = 'Iniciando sesión...';
+            loginMessage.classList.remove('text-red-500', 'text-green-500');
+            loginMessage.classList.add('text-gray-500');
+
+            try {
+                // Llama a la ruta POST /api/admin/login
+                const response = await axios.post(`${API_BASE}/admin/login`, {
+                    email,
+                    password
+                });
+
+                const token = response.data.token;
+                localStorage.setItem(ADMIN_TOKEN_KEY, token);
+                setAuthHeader(token);
+
+                loginMessage.textContent = '¡Login exitoso! Accediendo al panel...';
+                loginMessage.classList.remove('text-gray-500');
+                loginMessage.classList.add('text-green-500');
+
+                // Muestra el dashboard y oculta el login
+                checkLoginStatus();
+
+            } catch (error) {
+                const message = error.response ? error.response.data.message : 'Error de conexión o CORS. Revisa la consola del backend.';
+                loginMessage.textContent = `Error: ${message}`;
+                loginMessage.classList.remove('text-gray-500');
+                loginMessage.classList.add('text-red-500');
+                console.error('Error de Login:', error);
+            }
+        };
+
+        /**
+         * @description Carga inicial: Verifica si hay token y decide qué vista mostrar.
+         */
+        const checkLoginStatus = () => {
+            const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+            
+            // Ocultar el formulario de login/Mostrar panel
+            document.getElementById('login-content')?.classList.remove('active');
+            document.getElementById('main-panel')?.classList.add('hidden');
+            
+            if (token) {
+                setAuthHeader(token);
+                setTabsEnabled(true);
+                
+                document.getElementById('main-panel')?.classList.remove('hidden');
+
+                // Carga la vista de Dashboard por defecto y ejecuta las funciones de inicio
+                activateTab('dashboard');
+                initializeMap();
+                loadDevicesForSelector(); // Carga los dispositivos para el selector
+                startLiveLocationTracking(); // Inicia el ciclo de rastreo en tiempo real
+
+            } else {
+                setTabsEnabled(false);
+                document.getElementById('login-content')?.classList.add('active');
+            }
+        };
+
+        const logout = () => {
+            // Detener el intervalo antes de salir
+            if (liveLocationInterval) {
+                clearInterval(liveLocationInterval);
+                liveLocationInterval = null;
+            }
+            
+            // Limpieza de datos
+            localStorage.removeItem(ADMIN_TOKEN_KEY);
+            setAuthHeader(null);
+            
+            // Limpiar la vista
+            if (map) map.eachLayer(layer => {
+                if (layer instanceof L.Marker || layer instanceof L.Circle || layer instanceof L.Polyline) {
+                    map.removeLayer(layer);
+                }
+            });
+            markers = {};
+            
+            // Volver al login
+            checkLoginStatus(); 
+            document.getElementById('login-message').textContent = '';
+            document.getElementById('admin-password').value = '';
+        };
+
+        // --- MAPA Y RASTREO ---
+
+        const initializeMap = () => {
+            if (map) return; // Evita inicializar el mapa dos veces
+            
+            // Coordenadas por defecto (Ej. Centro de Bogotá, Colombia)
+            const defaultLat = 4.6533; 
+            const defaultLng = -74.0538;
+
+            // ✅ L.map DEBE ESTAR DEFINIDO AHORA
+            map = L.map('map').setView([defaultLat, defaultLng], 13);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            }).addTo(map);
+        };
+        
+        /**
+         * @description Obtiene y dibuja la última ubicación de TODOS los dispositivos (Rastreo en vivo).
+         */
+        const loadAllLiveLocations = async () => {
+            if (!map) return;
+            
+            // 1. Eliminar marcadores existentes
+            Object.values(markers).forEach(marker => map.removeLayer(marker));
+            markers = {};
+            
+            // 2. Remover polilínea si existe (solo para el modo 'all')
+            if (polyline) {
+                map.removeLayer(polyline);
+                polyline = null;
+            }
+
+            try {
+                // Llama a la ruta GET /api/history/latest/all
+                const response = await axios.get(`${API_BASE}/history/latest/all`);
+                const locations = response.data.locations;
+                
+                document.getElementById('online-count').textContent = locations.length;
+
+                if (locations.length === 0) {
+                    return;
+                }
+
+                locations.forEach(loc => {
+                    const lat = loc.latitud;
+                    const lng = loc.longitud;
+                    const id = loc.id_dispositivo;
+                    const name = loc.nombre_dispositivo || `Dispositivo ID ${id}`;
+                    
+                    // 3. Crear nuevo marcador y guardarlo
+                    const marker = L.marker([lat, lng]).addTo(map);
+                    marker.bindPopup(`<b>${name}</b><br>Lat: ${lat}, Lon: ${lng}<br>Último reporte: ${new Date(loc.timestamp_captura).toLocaleString()}`).openPopup();
+                    
+                    markers[id] = marker;
+                });
+                
+            } catch (error) {
+                handleAuthError(error);
+            }
+        };
+
+        const startLiveLocationTracking = () => {
+            // Detener cualquier rastreo que esté corriendo
+            if (liveLocationInterval) {
+                clearInterval(liveLocationInterval);
+            }
+            // Asegurarse de estar en modo 'all'
+            currentDeviceId = 'all'; 
+
+            // Ejecuta inmediatamente y luego cada 5 segundos (5000ms)
+            loadAllLiveLocations(); 
+            liveLocationInterval = setInterval(loadAllLiveLocations, 5000); 
+        };
+        
+        // Función placeholder para el Historial Individual (a implementar)
+        const loadDeviceHistory = async () => {
+            const deviceId = document.getElementById('device-selector').value;
+            if (deviceId === 'all') {
+                startLiveLocationTracking(); // Si selecciona "Todos", vuelve al modo en vivo.
+                return;
+            }
+            
+            // 1. Detener el rastreo en vivo por intervalo
+            if (liveLocationInterval) {
+                clearInterval(liveLocationInterval);
+                liveLocationInterval = null;
+            }
+            
+            // 2. Limpiar el mapa
+            Object.values(markers).forEach(marker => map.removeLayer(marker));
+            markers = {};
+            if (polyline) {
+                map.removeLayer(polyline);
+                polyline = null;
+            }
+            
+            // 3. Llamada a la API para historial GET /api/history/{device_id}
+            try {
+                // Notar: Se debe asegurar que las fechas sean válidas si el backend las requiere
+                const response = await axios.get(`${API_BASE}/history/${deviceId}?start_date=2024-01-01&end_date=2024-12-31`);
+                const history = response.data.locations;
+                
+                if (history.length === 0) {
+                    alert('No hay historial de ubicaciones para este dispositivo en el rango especificado.');
+                    return;
+                }
+                
+                const latLons = history.map(loc => [loc.latitud, loc.longitud]);
+                
+                // Dibujar la polilínea
+                polyline = L.polyline(latLons, {color: 'blue'}).addTo(map);
+                
+                // Centrar el mapa en la última ubicación
+                if (latLons.length > 0) {
+                    const lastLocation = latLons[latLons.length - 1];
+                    map.setView(lastLocation, 14);
+                    // Colocar marcador de inicio y fin (opcional)
+                }
+
+            } catch (error) {
+                handleAuthError(error);
+            }
+        };
+
+
+        // --- FUNCIONES ADMINISTRATIVAS ---
+
+        // 1. Carga el selector de dispositivos
+        const loadDevicesForSelector = async () => {
+            const selector = document.getElementById('device-selector');
+            if (!selector) return;
+
+            selector.innerHTML = '<option value="all">Todos los Dispositivos (Live)</option>';
+            try {
+                // Llama a la ruta GET /api/admin/devices
+                const response = await axios.get(`${API_BASE}/admin/devices`);
+                response.data.devices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.id_dispositivo;
+                    option.textContent = `${device.nombre_dispositivo || `Dispositivo ${device.id_dispositivo}`} (${device.numero_telefono}) ${device.activo ? '✅' : '❌'}`;
+                    selector.appendChild(option);
+                });
+            } catch (error) {
+                handleAuthError(error);
+            }
+        };
+
+        // 2. Carga la lista de Zonas de Geofencing
+        const loadZones = async () => {
+            const zonesTableBody = document.getElementById('zones-table-body');
+            if (!zonesTableBody) return;
+
+            zonesTableBody.innerHTML = '<tr><td colspan="6" class="p-4 text-center">Cargando zonas...</td></tr>';
+            
+            // Detener rastreo en tiempo real al cambiar de pestaña
+            if (liveLocationInterval) { 
+                clearInterval(liveLocationInterval);
+                liveLocationInterval = null;
+            }
+            
+            try {
+                // Llama a la ruta GET /api/zones
+                const response = await axios.get(`${API_BASE}/zones`);
+                zonesTableBody.innerHTML = ''; 
+                
+                if (response.data.zones.length === 0) {
+                    zonesTableBody.innerHTML = '<tr><td colspan="6" class="p-4 text-center">No hay zonas de geofencing definidas.</td></tr>';
+                    return;
+                }
+
+                response.data.zones.forEach(zone => {
+                    const row = zonesTableBody.insertRow();
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap">${zone.nombre_zona}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${zone.centro_latitud}, ${zone.centro_longitud}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${zone.radio_metros} m</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${zone.alerta_entrada ? 'Sí' : 'No'} / ${zone.alerta_salida ? 'Sí' : 'No'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button onclick="editZone(${zone.id_zona})" class="text-indigo-600 hover:text-indigo-900 mr-2">Editar</button>
+                            <button onclick="deleteZone(${zone.id_zona})" class="text-red-600 hover:text-red-900">Eliminar</button>
+                        </td>
+                    `;
+                });
+
+            } catch (error) {
+                handleAuthError(error);
+                zonesTableBody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-red-500">Error al cargar las zonas.</td></tr>';
+            }
+        };
+        
+        // 3. Carga la lista de Dispositivos de Administración
+        const loadAdminDevices = async () => {
+             const devicesTableBody = document.getElementById('devices-table-body');
+             if (!devicesTableBody) return;
+
+             devicesTableBody.innerHTML = '<tr><td colspan="5" class="p-4 text-center">Cargando dispositivos...</td></tr>';
+             try {
+                // Llama a la ruta GET /api/admin/devices
+                const response = await axios.get(`${API_BASE}/admin/devices`);
+                devicesTableBody.innerHTML = '';
+                
+                response.data.devices.forEach(device => {
+                    const row = devicesTableBody.insertRow();
+                    const statusColor = device.activo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                    const buttonText = device.activo ? 'Desactivar' : 'Activar';
+                    const newStatus = !device.activo;
+                    
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap">${device.id_dispositivo}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${device.nombre_dispositivo}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${device.numero_telefono}</td>
+                        <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${device.activo ? 'Activo' : 'Inactivo'}</span></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="updateDeviceStatus(${device.id_dispositivo}, ${newStatus})" class="text-indigo-600 hover:text-indigo-900">${buttonText}</button>
+                        </td>
+                    `;
+                });
+            } catch (error) {
+                handleAuthError(error);
+                devicesTableBody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-red-500">Error al cargar la lista de dispositivos.</td></tr>';
+            }
+        };
+        
+        /**
+         * @description Actualiza el estado activo/inactivo de un dispositivo.
+         */
+        const updateDeviceStatus = async (deviceId, newStatus) => {
+             if (!confirm(`¿Está seguro de ${newStatus ? 'ACTIVAR' : 'DESACTIVAR'} el dispositivo ID ${deviceId}?`)) {
+                 return;
+             }
+             try {
+                 // Llama a la ruta PUT /api/admin/devices/:id/status
+                 await axios.put(`${API_BASE}/admin/devices/${deviceId}/status`, {
+                     activo: newStatus
+                 });
+                 // Recarga las tablas después del éxito
+                 loadAdminDevices();
+                 loadDevicesForSelector(); // Actualiza el selector del dashboard
+             } catch (error) {
+                 handleAuthError(error);
+             }
+        };
+        
+        // 4. Carga la lista de Alertas
+        const loadAlerts = async () => {
+            const alertsTableBody = document.getElementById('alerts-table-body');
+            if (!alertsTableBody) return;
+
+            alertsTableBody.innerHTML = '<tr><td colspan="5" class="p-4 text-center">Cargando historial de alertas...</td></tr>';
+            try {
+                // Llama a la ruta GET /api/admin/alerts
+                const response = await axios.get(`${API_BASE}/admin/alerts?limit=50`);
+                alertsTableBody.innerHTML = '';
+                
+                if (response.data.alerts.length === 0) {
+                     alertsTableBody.innerHTML = '<tr><td colspan="5" class="p-4 text-center">No hay alertas registradas.</td></tr>';
+                    return;
+                }
+                
+                response.data.alerts.forEach(alert => {
+                    const row = alertsTableBody.insertRow();
+                    const typeColor = alert.tipo_alerta === 'ENTRADA_ZONA' ? 'text-green-600 font-semibold' : 'text-orange-600 font-semibold';
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap">${new Date(alert.timestamp_alerta).toLocaleString()}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${alert.nombre_dispositivo || 'N/A'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${alert.nombre_zona || 'N/A'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap ${typeColor}">${alert.tipo_alerta.replace('_', ' ')}</td>
+                    `;
+                });
+            } catch (error) {
+                handleAuthError(error);
+                alertsTableBody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-red-500">Error al cargar las alertas.</td></tr>';
+            }
+        };
+        
+        // Placeholder para funciones CRUD de Zonas (a implementar)
+        const openZoneModal = () => { alert('Función de Crear Zona pendiente de implementar.'); };
+        const editZone = (id) => { alert(`Función de Editar Zona ${id} pendiente de implementar.`); };
+        const deleteZone = async (id) => { 
+            if (!confirm(`¿Está seguro de ELIMINAR la zona ID ${id}?`)) return;
+            try {
+                // Llama a la ruta DELETE /api/zones/:id_zona
+                await axios.delete(`${API_BASE}/zones/${id}`);
+                alert('Zona eliminada exitosamente.');
+                loadZones(); // Recargar la lista
+            } catch (error) {
+                handleAuthError(error);
+            }
+        };
+
+
+        // --- INICIALIZACIÓN DE EVENTOS ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // A. Carga inicial: verifica el token almacenado y muestra la vista correcta
+            checkLoginStatus(); 
+
+            // B. Listener del botón de Login (CRÍTICO)
+            const loginBtn = document.getElementById('login-btn');
+            if (loginBtn) {
+                loginBtn.addEventListener('click', adminLogin);
+            }
+            
+            // C. Listener para enviar el formulario de Login con la tecla Enter
+            const adminPasswordInput = document.getElementById('admin-password');
+            if (adminPasswordInput) {
+                adminPasswordInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault(); // **CRÍTICO: Previene el envío por defecto que recarga la página**
+                        adminLogin();
+                    }
+                });
+            }
+
+            // D. Listener del botón de Logout
+            document.getElementById('logout-btn')?.addEventListener('click', logout);
+            
+            // E. Listeners para el cambio de pestañas
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const tabId = e.target.getAttribute('data-tab-id');
+                    activateTab(tabId);
+                    
+                    // Lógica de carga específica para cada pestaña
+                    if (tabId === 'dashboard') {
+                        initializeMap();
+                        startLiveLocationTracking(); // Reinicia el rastreo en vivo
+                        loadDevicesForSelector();
+                    } else if (tabId === 'zones') {
+                        loadZones(); // Carga las zonas
+                    } else if (tabId === 'devices') {
+                        loadAdminDevices(); // Carga la tabla de dispositivos
+                        loadAlerts(); // Carga la tabla de alertas
+                    }
+                });
+            });
+        });
+
+    </script>
+</body>

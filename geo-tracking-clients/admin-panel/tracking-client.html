@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS Detector - Cliente de Rastreo (Simulador)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body class="bg-gray-200 min-h-screen p-8">
+
+    <div class="max-w-xl mx-auto bg-white p-6 rounded-lg shadow-xl">
+        <h1 class="text-2xl font-bold text-indigo-700 mb-6">🛰️ Cliente de Rastreo GPS Detector</h1>
+        <p class="mb-4 text-gray-600">Simulador de dispositivo GPS. Usará un ID único para registrarse, obtener un token y luego enviar ubicaciones.</p>
+        
+        <div id="registration-section" class="space-y-4 border p-4 rounded-lg bg-gray-50 mb-6">
+            <h2 class="text-xl font-semibold text-gray-800">1. Registro del Dispositivo</h2>
+            <div>
+                <label for="device-name" class="block text-sm font-medium text-gray-700">Nombre del Dispositivo (Ej. Vehículo 001):</label>
+                <input type="text" id="device-name" value="Rastreador Simulado 1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+            </div>
+            <button id="register-btn" class="w-full bg-green-600 text-white p-2 rounded-md hover:bg-green-700 disabled:bg-gray-400">
+                Registrar Dispositivo
+            </button>
+            <p id="registration-message" class="text-sm text-center mt-2"></p>
+        </div>
+
+        <div id="verification-section" class="space-y-4 border p-4 rounded-lg bg-yellow-50 mb-6 hidden">
+            <h2 class="text-xl font-semibold text-gray-800">2. Verificación del Código</h2>
+            <p class="text-sm text-gray-600">Busca el código de 6 dígitos en la **consola de tu Backend** y ingrésalo aquí.</p>
+            <div>
+                <label for="verification-code" class="block text-sm font-medium text-gray-700">Código de 6 dígitos:</label>
+                <input type="text" id="verification-code" class="mt-1 block w-full p-2 border border-gray-300 rounded-md" maxlength="6">
+            </div>
+            <button id="verify-btn" class="w-full bg-yellow-600 text-white p-2 rounded-md hover:bg-yellow-700 disabled:bg-gray-400">
+                Verificar y Obtener Token
+            </button>
+            <p id="verification-message" class="text-sm text-center mt-2"></p>
+        </div>
+
+        <div id="tracking-section" class="space-y-4 border p-4 rounded-lg bg-red-100 hidden">
+            <h2 class="text-xl font-semibold text-red-800">3. Rastreo Activo</h2>
+            <div id="device-details" class="bg-white p-3 rounded-md border text-sm font-mono"></div>
+            <p id="tracking-status" class="text-md font-medium text-red-700">Esperando para empezar...</p>
+            <button id="stop-tracking-btn" class="w-full bg-red-600 text-white p-2 rounded-md hover:bg-red-700">
+                Detener Rastreo
+            </button>
+        </div>
+        
+    </div>
+
+    <script>
+        const API_BASE = "http://localhost:3000/api";
+        const UPDATE_INTERVAL_MS = 5000; // Enviar ubicación cada 5 segundos
+        
+        let deviceToken = localStorage.getItem('deviceToken');
+        let deviceId = localStorage.getItem('deviceId');
+        let trackingInterval = null;
+        
+        // Simulación de ubicaciones (moviéndose lentamente cerca del centro de Bogotá)
+        let currentLat = 4.6200; // Latitud inicial (Bogotá)
+        let currentLong = -74.0700; // Longitud inicial (Bogotá)
+        const MOVEMENT_STEP = 0.0001; // Pequeño paso de movimiento
+
+        // --- FUNCIONES DE AUTENTICACIÓN ---
+
+        // Función auxiliar para generar el número simulado
+        const getSimulatedPhoneNumber = () => {
+            const deviceName = document.getElementById('device-name').value;
+            // Sanitizar y limitar a 15 caracteres para simular un teléfono
+            return deviceName.replace(/\s/g, '').toLowerCase().substring(0, 15);
+        };
+
+        // PASO 1: Registrar (Obtener Código)
+        async function registerDevice() {
+            const simPhoneNumber = getSimulatedPhoneNumber();
+            
+            document.getElementById('register-btn').disabled = true;
+            document.getElementById('registration-message').textContent = 'Registrando dispositivo y solicitando código...';
+
+            try {
+                await axios.post(`${API_BASE}/auth/register`, {
+                    numero_telefono: simPhoneNumber
+                });
+                
+                document.getElementById('registration-message').innerHTML = '✅ Código enviado. **Revisa la consola del Backend.**';
+                
+                // Transicionar a la verificación
+                document.getElementById('registration-section').classList.add('hidden');
+                document.getElementById('verification-section').classList.remove('hidden');
+
+            } catch (error) {
+                let errorMessage = 'Error desconocido en el registro.';
+                if (error.response) {
+                    errorMessage = error.response.data.message || `Error del servidor (Código: ${error.response.status}).`;
+                } else if (error.request) {
+                    errorMessage = 'Error de conexión. Asegure el Backend esté activo.';
+                }
+                
+                document.getElementById('registration-message').textContent = `❌ Fallo en el registro: ${errorMessage}`;
+                document.getElementById('register-btn').disabled = false;
+                console.error("Error de registro:", error);
+            }
+        }
+
+        // PASO 2: Verificar Código (Obtener Token)
+        async function verifyCode() {
+            const code = document.getElementById('verification-code').value;
+            const simPhoneNumber = getSimulatedPhoneNumber();
+            
+            if (!code || code.length !== 6) {
+                document.getElementById('verification-message').textContent = '❌ Código inválido. Debe tener 6 dígitos.';
+                return;
+            }
+
+            document.getElementById('verify-btn').disabled = true;
+            document.getElementById('verification-message').textContent = 'Verificando código...';
+
+            try {
+                // Endpoint POST /auth/verify
+                const response = await axios.post(`${API_BASE}/auth/verify`, {
+                    numero_telefono: simPhoneNumber,
+                    codigo_verificacion: code
+                });
+                
+                // Si es exitoso, obtenemos el JWT
+                deviceToken = response.data.token_acceso;
+                deviceId = response.data.id_dispositivo;
+                
+                // Guardar en el navegador para persistencia
+                localStorage.setItem('deviceToken', deviceToken);
+                localStorage.setItem('deviceId', deviceId);
+
+                document.getElementById('verification-message').textContent = '✅ Token obtenido. Iniciando rastreo.';
+                
+                // Ocultar verificación, mostrar rastreo y empezar
+                document.getElementById('verification-section').classList.add('hidden');
+                startTracking();
+
+            } catch (error) {
+                let errorMessage = 'Error desconocido en la verificación.';
+                if (error.response) {
+                    errorMessage = error.response.data.message || `Error del servidor (Código: ${error.response.status}).`;
+                } else if (error.request) {
+                    errorMessage = 'Error de conexión con la API.';
+                }
+                
+                document.getElementById('verification-message').textContent = `❌ Fallo en la verificación: ${errorMessage}`;
+                document.getElementById('verify-btn').disabled = false;
+                console.error("Error de verificación:", error);
+            }
+        }
+
+
+        // --- FUNCIONES DE RASTREO ---
+        
+        function startTracking() {
+            // Ocultar verificación (o registro), mostrar rastreo
+            document.getElementById('registration-section').classList.add('hidden');
+            document.getElementById('verification-section').classList.add('hidden');
+            document.getElementById('tracking-section').classList.remove('hidden');
+
+            document.getElementById('device-details').innerHTML = `
+                ID: ${deviceId}<br>
+                Token (últimos 4): ...${deviceToken ? deviceToken.slice(-4) : 'N/A'}
+            `;
+
+            if (trackingInterval) clearInterval(trackingInterval);
+
+            // Iniciar el envío de ubicaciones
+            sendLocationUpdate(); // Envío inmediato inicial
+            trackingInterval = setInterval(sendLocationUpdate, UPDATE_INTERVAL_MS);
+        }
+
+        function stopTracking() {
+            if (trackingInterval) {
+                clearInterval(trackingInterval);
+                trackingInterval = null;
+                document.getElementById('tracking-status').innerHTML = '🛑 Rastreo Detenido Manualmente. <button onclick="localStorage.clear(); window.location.reload();" class="text-indigo-600 underline">Reiniciar</button>';
+                document.getElementById('tracking-status').classList.add('text-blue-700');
+            }
+        }
+
+        async function sendLocationUpdate() {
+            // Simular movimiento
+            currentLat += (Math.random() > 0.5 ? 1 : -1) * MOVEMENT_STEP;
+            currentLong += (Math.random() > 0.5 ? 1 : -1) * MOVEMENT_STEP;
+            
+            const locationData = {
+                latitud: parseFloat(currentLat.toFixed(6)),
+                longitud: parseFloat(currentLong.toFixed(6))
+            };
+
+            try {
+                // Endpoint POST /location
+                await axios.post(`${API_BASE}/location`, locationData, {
+                    headers: { 
+                        Authorization: `Bearer ${deviceToken}` 
+                    }
+                });
+
+                document.getElementById('tracking-status').innerHTML = `
+                    Enviando...<br>
+                    Ubicación: Lat: ${locationData.latitud}, Long: ${locationData.longitud}<br>
+                    Último envío: ${new Date().toLocaleTimeString()}
+                `;
+
+            } catch (error) {
+                // Si el token falla (401) o hay error de red, detener y mostrar error.
+                stopTracking();
+                let message = error.response ? error.response.data.message : 'Error de conexión.';
+                document.getElementById('tracking-status').innerHTML = `
+                    🛑 Error al enviar ubicación. Token inválido o problema de red.<br>
+                    ${message}
+                `;
+                console.error("Error al enviar ubicación:", error);
+            }
+        }
+
+
+        // --- INICIALIZACIÓN Y EVENT LISTENERS ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('register-btn').addEventListener('click', registerDevice);
+            document.getElementById('verify-btn').addEventListener('click', verifyCode); // Nuevo listener
+            document.getElementById('stop-tracking-btn').addEventListener('click', stopTracking);
+
+            // Comprobar si ya existe un token guardado (sesión previa)
+            if (deviceToken && deviceId) {
+                // Si ya tenemos token, saltamos directo al rastreo
+                document.getElementById('registration-message').textContent = `Dispositivo ID ${deviceId} encontrado localmente.`;
+                startTracking();
+            } else {
+                // Si no hay token, empezamos en la sección de registro
+                document.getElementById('registration-section').classList.remove('hidden');
+            }
+        });
+        
+    </script>
+</body>
+</html>
